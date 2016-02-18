@@ -1,0 +1,21 @@
+- name: Remove unwanted occurrences of PasswordAuthentication
+  lineinfile: dest=/etc/ssh/sshd_config
+              regexp="{{ item }}"
+              state=absent
+  notify: Restart SSH
+  with_items:
+    - "^#PasswordAuthentication"
+    - "^PasswordAuthentication (?!no)"
+
+- name: Set PasswordAuthentication
+  lineinfile: dest=/etc/ssh/sshd_config
+              line="PasswordAuthentication no" 
+              state=present
+              insertafter="^# To disable tunneled clear text passwords, change to no here!"
+  notify: Restart SSH
+
+- name: Remove language environment variables
+  replace: dest=/etc/ssh/sshd_config
+           regexp="AcceptEnv(.*) LANG(?:UAGE)?(.*)"
+           replace="AcceptEnv\1\2"
+  notify: Restart SSH
