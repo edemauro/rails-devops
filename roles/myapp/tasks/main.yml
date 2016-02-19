@@ -1,0 +1,37 @@
+---
+
+- name: Create base directory
+  file: path=/var/www/
+        state=directory
+
+- name: Create myapp directory structure
+  file: path=/var/www/myapp/{{ item }}
+        state=directory
+        owner=app
+  with_items:
+    - application
+    - shared
+    - shared/config
+    - shared/log
+    - shared/log/archive
+    - shared/pids
+    - shared/tmp
+    - shared/tmp/cache
+
+- name: Clone codebase
+  git: repo=https://github.com/relativkreativ/erdo-sample-app.git
+       dest=/var/www/myapp/application
+       version=master
+       update=no
+       accept_hostkey=yes
+  become: yes
+  become_user: app
+  register: clone_codebase
+
+- name: Lock Ruby version
+  copy: content=2.2.4
+        dest=/var/www/myapp/.ruby-version
+        owner=app
+        group=app
+        mode=0600
+  register: lock_ruby_version
