@@ -40,3 +40,7 @@ private_keys:
     -----END RSA PRIVATE KEY-----
 
 database_root_password: 4RT9YwxKwpx9T3UYQMa2CuVW2149H4
+
+ip_address: "{{ ansible_env['SSH_CONNECTION'].split(' ')[2] }}"
+
+myapp_database_password: 837nK6YUDw9sAu45uN5f7f4TcdJdSE

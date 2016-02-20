@@ -35,3 +35,150 @@
         group=app
         mode=0600
   register: lock_ruby_version
+
+- name: Set default RAILS_ENV
+  copy: content="RAILS_ENV=production"
+        dest=/home/app/.rbenv/vars
+        owner=app
+        group=app
+        mode=0600
+
+- name: Set environment variables
+  copy: src=rbenv-vars
+        dest=/var/www/myapp/.rbenv-vars
+        owner=app
+        group=app
+        mode=0600
+
+- name: Copy Unicorn configuration
+  template: src=unicorn.rb.j2
+            dest=/var/www/myapp/shared/config/unicorn.rb
+            owner=app
+
+- name: Configure logrotate
+  copy: src=logrotate
+        dest=/etc/logrotate.d/myapp
+
+- name: Install semanage tool
+  yum: pkg=policycoreutils-python
+       state=present
+
+- name: Check SELinux type of logs
+  shell: ls -dZ /var/www/myapp/shared/log | grep var_log_t
+  changed_when: false
+  failed_when: false
+  register: correct_log_type
+
+- name: Adjust SELinux type of logs
+  command: semanage fcontext -a -t var_log_t "/var/www/myapp/shared/log(/.*)?" 
+  when: correct_log_type.rc != 0
+
+- name: Relabel logs
+  command: restorecon -R /var/www/myapp/shared/log 
+  when: correct_log_type.rc != 0
+
+- name: Remove files and directories to be symlinked
+  file: path=/var/www/myapp/application/{{ item }}
+        state=absent
+  with_items:
+    - config/database.yml
+    - config/unicorn.rb
+    - log
+    - tmp
+  when: clone_codebase|changed
+
+- name: Symlink shared files and directories
+  file: src=/var/www/myapp/shared/{{ item }}
+        dest=/var/www/myapp/application/{{ item }}
+        state=link
+        force=yes
+  with_items:
+    - config/database.yml
+    - config/unicorn.rb
+    - log
+    - tmp
+  when: clone_codebase|changed
+
+- name: Restored SELinux contexts
+  command: restorecon -R /var/www/myapp 
+  when: clone_codebase|changed
+
+- name: Set SELinux boolean
+  seboolean: name=httpd_can_network_connect
+             persistent=yes
+             state=yes
+
+- name: Install systemd service
+  copy: src=unicorn-myapp.service 
+      dest=/usr/lib/systemd/system/unicorn-myapp.service 
+      mode=0755
+
+- name: Enable unicorn-myapp
+  service: name=unicorn-myapp
+           enabled=yes
+
+- name: Copy sudoers configuration
+  copy: src=sudoers
+        dest=/etc/sudoers.d/myapp
+
+- name: Install MariaDB development headers
+  yum: pkg=mariadb-devel
+       state=present
+
+- name: Install bundle
+  shell: ~/.rbenv/shims/bundle install --without development test
+         chdir=/var/www/myapp/application
+  become: yes
+  become_user: app
+  when: lock_ruby_version|changed
+
+- name: Create database
+  mysql_db: name=myapp
+            state=present
+
+- name: Create database user
+  mysql_user: name=myapp
+              password={{ myapp_database_password }}
+              priv=myapp.*:ALL
+              host={{ item }}
+              state=present
+  with_items:
+    - 127.0.0.1
+    - localhost
+
+- name: Copy database configuration
+  template: src=database.yml.j2
+            dest=/var/www/myapp/shared/config/database.yml
+            owner=app
+            group=app
+            mode=0600
+
+- name: Load database schema
+  shell: ~/.rbenv/shims/bundle exec rake db:schema:load
+         chdir=/var/www/myapp/application
+  become: yes
+  become_user: app
+  when: clone_codebase|changed
+
+- name: Add seed data
+  shell: ~/.rbenv/shims/bundle exec rake db:seed
+         chdir=/var/www/myapp/application
+  become: yes
+  become_user: app
+  when: clone_codebase|changed
+
+- name: Precompile assets
+  shell: ~/.rbenv/shims/bundle exec rake assets:precompile
+         chdir=/var/www/myapp/application
+  become: yes
+  become_user: app
+  when: clone_codebase|changed
+
+- name: Start application server
+  service: name=unicorn-myapp
+           state=started
+
+- name: Copy vhost
+  template: src=vhost.conf.j2
+            dest=/etc/nginx/conf.d/myapp.conf
+  notify: Restart nginx

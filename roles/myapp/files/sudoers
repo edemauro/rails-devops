@@ -1,0 +1,8 @@
+app ALL= NOPASSWD: /usr/bin/systemctl * unicorn-myapp.service, \
+                   /etc/init.d/unicorn-myapp, \
+                   /sbin/service unicorn-myapp *, \
+                   /sbin/restorecon -R /var/www/myapp
+
+Defaults: app !requiretty
+Defaults: app env_reset
+Defaults: app env_keep += "RAILS_ENV SECRET_KEY_BASE"
